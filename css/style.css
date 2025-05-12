@@ -1,0 +1,105 @@
+/* Stile principale per Bookfind */
+
+/* Stile per il corpo */
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Stile per il footer */
+.footer {
+    margin-top: auto;
+}
+
+/* Card personalizzate */
+.card-header-custom {
+    background-color: #f0f8ff;
+    border-bottom: 2px solid #007bff;
+}
+
+/* Effetti hover sulle righe della tabella */
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+    cursor: pointer;
+}
+
+/* Stile per il testo dei risultati */
+.search-results {
+    border-left: 4px solid #007bff;
+    padding-left: 10px;
+}
+
+/* Stili per i libri */
+.book-card {
+    transition: transform 0.3s ease;
+    margin-bottom: 1rem;
+}
+
+.book-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+}
+
+/* Stili per le sezioni colorate */
+.section-N-V {
+    background-color: #e6f7ff;
+    border-left: 4px solid #0099ff;
+}
+
+.section-GEN {
+    background-color: #e6ffee;
+    border-left: 4px solid #00cc66;
+}
+
+/* Stili per i badge di stato */
+.badge-disponibile {
+    background-color: #28a745;
+}
+
+.badge-prestito {
+    background-color: #dc3545;
+}
+
+.badge-manutenzione {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+/* Stile per i pulsanti del carrello */
+.btn-cart-add {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.btn-cart-remove {
+    background-color: #f44336;
+    color: white;
+}
+
+/* Stile per gli input di ricerca */
+.search-input {
+    border-radius: 20px;
+    padding-left: 40px;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: 15px center;
+}
+
+/* Stile per tabelle responsive */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Media query per dispositivi mobili */
+@media (max-width: 768px) {
+    .hide-mobile {
+        display: none;
+    }
+    
+    .container {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+}
