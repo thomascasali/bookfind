@@ -12,14 +12,27 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     
     <!-- CSS personalizzato -->
-    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="<?php echo getBaseUrl(); ?>css/style.css">
     
     <!-- Favicon -->
-    <link rel="icon" href="../img/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="<?php echo getBaseUrl(); ?>img/favicon.ico" type="image/x-icon">
+    
+    <?php
+    // Funzione per ottenere l'URL base dinamicamente
+    function getBaseUrl() {
+        $base_dir = dirname($_SERVER['SCRIPT_NAME']);
+        $base_url = '';
+        if($base_dir != '/' && $base_dir != '\\') {
+            $base_url = $base_dir;
+            if(substr($base_url, -1) != '/') $base_url .= '/';
+        }
+        return $base_url;
+    }
+    ?>
 </head>
 <body>
     <!-- Includiamo la navbar -->
-    <?php include 'navbar.php'; ?>
+    <?php include 'includes/navbar.php'; ?>
     
     <!-- Contenitore principale -->
     <div class="container py-4">

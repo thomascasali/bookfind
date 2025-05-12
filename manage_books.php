@@ -8,100 +8,282 @@ include 'includes/header.php';
 // Includi il file di connessione al database
 require_once 'includes/db_connect.php';
 
-// Elabora l'eliminazione di un libro
-if(isset($_POST['delete_book']) && isset($_POST['inventario'])) {
-    $inventario = $conn->real_escape_string($_POST['inventario']);
-    
-    // Procedi con l'eliminazione
-    $delete_query = "DELETE FROM libri WHERE inventario = '$inventario'";
-    if($conn->query($delete_query) === TRUE) {
-        $delete_status = "successo";
-        $delete_message = "Libro eliminato con successo.";
-    } else {
-        $delete_status = "errore";
-        $delete_message = "Errore nell'eliminazione del libro: " . $conn->error;
-    }
-}
+// Operazioni sui libri (eliminazione, aggiornamento)
+processBookOperations($conn);
 
-// Elabora l'aggiornamento di un libro esistente
-if(isset($_POST['update_book'])) {
-    $inventario = $conn->real_escape_string($_POST['inventario']);
-    $id_edificio = $conn->real_escape_string($_POST['id_edificio']);
-    $sezione = $conn->real_escape_string($_POST['sezione']);
-    $collocazione = $conn->real_escape_string($_POST['collocazione']);
-    $sequenza = $conn->real_escape_string($_POST['sequenza']);
-    $specificazione = $conn->real_escape_string($_POST['specificazione']);
-    $stanza = $conn->real_escape_string($_POST['stanza']);
-    $scaffale = $conn->real_escape_string($_POST['scaffale']);
-    $stato = $conn->real_escape_string($_POST['stato']);
-    
-    $update_query = "UPDATE libri SET 
-                    id_edificio = " . ($id_edificio ? "'$id_edificio'" : "NULL") . ", 
-                    sezione = '$sezione', 
-                    collocazione = '$collocazione', 
-                    sequenza = '$sequenza', 
-                    specificazione = '$specificazione', 
-                    stanza = '$stanza', 
-                    scaffale = '$scaffale', 
-                    stato = '$stato' 
-                    WHERE inventario = '$inventario'";
-    
-    if($conn->query($update_query) === TRUE) {
-        $update_status = "successo";
-        $update_message = "Libro aggiornato con successo.";
-    } else {
-        $update_status = "errore";
-        $update_message = "Errore nell'aggiornamento del libro: " . $conn->error;
-    }
-}
+// Inizializza le variabili per la paginazione e la ricerca
+$search_params = initializeSearchParams();
+$pagination = initializePagination($conn, $search_params);
+
+// Recupera i libri in base ai parametri di ricerca e paginazione
+$books = getBooks($conn, $search_params, $pagination);
 
 // Recupera tutti gli edifici per il menu a tendina
-$edifici_query = "SELECT id, nome FROM edifici ORDER BY nome ASC";
-$edifici_result = $conn->query($edifici_query);
-$edifici = array();
-if ($edifici_result->num_rows > 0) {
-    while($edificio = $edifici_result->fetch_assoc()) {
-        $edifici[$edificio['id']] = $edificio['nome'];
+$edifici = getBuildings($conn);
+
+/******** FUNZIONI ********/
+
+/**
+ * Gestisce le operazioni sui libri (eliminazione, aggiornamento)
+ */
+function processBookOperations($conn) {
+    // Elabora l'eliminazione di un libro
+    if(isset($_POST['delete_book']) && isset($_POST['inventario'])) {
+        $inventario = $conn->real_escape_string($_POST['inventario']);
+        
+        // Procedi con l'eliminazione
+        $delete_query = "DELETE FROM libri WHERE inventario = '$inventario'";
+        if($conn->query($delete_query) === TRUE) {
+            $GLOBALS['delete_status'] = "successo";
+            $GLOBALS['delete_message'] = "Libro eliminato con successo.";
+        } else {
+            $GLOBALS['delete_status'] = "errore";
+            $GLOBALS['delete_message'] = "Errore nell'eliminazione del libro: " . $conn->error;
+        }
+    }
+
+    // Elabora l'aggiornamento di un libro esistente
+    if(isset($_POST['update_book'])) {
+        $inventario = $conn->real_escape_string($_POST['inventario']);
+        $id_edificio = $conn->real_escape_string($_POST['id_edificio']);
+        $sezione = $conn->real_escape_string($_POST['sezione']);
+        $collocazione = $conn->real_escape_string($_POST['collocazione']);
+        $sequenza = $conn->real_escape_string($_POST['sequenza']);
+        $specificazione = $conn->real_escape_string($_POST['specificazione']);
+        $stanza = $conn->real_escape_string($_POST['stanza']);
+        $scaffale = $conn->real_escape_string($_POST['scaffale']);
+        $stato = $conn->real_escape_string($_POST['stato']);
+        
+        $update_query = "UPDATE libri SET 
+                        id_edificio = " . ($id_edificio ? "'$id_edificio'" : "NULL") . ", 
+                        sezione = '$sezione', 
+                        collocazione = '$collocazione', 
+                        sequenza = '$sequenza', 
+                        specificazione = '$specificazione', 
+                        stanza = '$stanza', 
+                        scaffale = '$scaffale', 
+                        stato = '$stato' 
+                        WHERE inventario = '$inventario'";
+        
+        if($conn->query($update_query) === TRUE) {
+            $GLOBALS['update_status'] = "successo";
+            $GLOBALS['update_message'] = "Libro aggiornato con successo.";
+        } else {
+            $GLOBALS['update_status'] = "errore";
+            $GLOBALS['update_message'] = "Errore nell'aggiornamento del libro: " . $conn->error;
+        }
     }
 }
 
-// Imposta i parametri di paginazione
-$pagina = isset($_GET['pagina']) ? (int)$_GET['pagina'] : 1;
-$per_pagina = 10;
-$offset = ($pagina - 1) * $per_pagina;
-
-// Recupera i parametri di ricerca
-$search_inventario = isset($_GET['search_inventario']) ? $conn->real_escape_string($_GET['search_inventario']) : '';
-$search_sezione = isset($_GET['search_sezione']) ? $conn->real_escape_string($_GET['search_sezione']) : '';
-$search_stanza = isset($_GET['search_stanza']) ? $conn->real_escape_string($_GET['search_stanza']) : '';
-
-// Costruisci la query di ricerca
-$where_clause = "";
-if(!empty($search_inventario)) {
-    $where_clause .= " AND l.inventario LIKE '%$search_inventario%'";
-}
-if(!empty($search_sezione)) {
-    $where_clause .= " AND l.sezione LIKE '%$search_sezione%'";
-}
-if(!empty($search_stanza)) {
-    $where_clause .= " AND l.stanza LIKE '%$search_stanza%'";
+/**
+ * Inizializza i parametri di ricerca dai parametri GET
+ */
+function initializeSearchParams() {
+    return array(
+        'search_inventario' => isset($_GET['search_inventario']) ? $_GET['search_inventario'] : '',
+        'search_sezione' => isset($_GET['search_sezione']) ? $_GET['search_sezione'] : '',
+        'search_stanza' => isset($_GET['search_stanza']) ? $_GET['search_stanza'] : '',
+        'search_edificio' => isset($_GET['search_edificio']) ? $_GET['search_edificio'] : '',
+        'search_stato' => isset($_GET['search_stato']) ? $_GET['search_stato'] : ''
+    );
 }
 
-// Query per contare il totale dei libri
-$count_query = "SELECT COUNT(*) as total FROM libri l WHERE 1=1 $where_clause";
-$count_result = $conn->query($count_query);
-$count_row = $count_result->fetch_assoc();
-$total_records = $count_row['total'];
-$total_pages = ceil($total_records / $per_pagina);
+/**
+ * Inizializza i parametri di paginazione
+ */
+function initializePagination($conn, $search_params) {
+    // Imposta i parametri di paginazione
+    $per_pagina = 100; // 100 libri per pagina
+    $pagina_corrente = isset($_GET['pagina']) ? max(1, intval($_GET['pagina'])) : 1;
+    
+    // Costruisce la clausola WHERE per la ricerca
+    $where_clause = buildWhereClause($search_params);
+    
+    // Query per contare il totale dei libri
+    $count_query = "SELECT COUNT(*) as total FROM libri l WHERE 1=1 $where_clause";
+    $count_result = $conn->query($count_query);
+    $count_row = $count_result->fetch_assoc();
+    $total_records = $count_row['total'];
+    $total_pagine = ceil($total_records / $per_pagina);
+    
+    // Assicurati che la pagina corrente non superi il totale delle pagine
+    $pagina_corrente = min($pagina_corrente, max(1, $total_pagine));
+    
+    // Calcola l'offset per la query
+    $offset = ($pagina_corrente - 1) * $per_pagina;
+    
+    return array(
+        'per_pagina' => $per_pagina,
+        'pagina_corrente' => $pagina_corrente,
+        'total_records' => $total_records,
+        'total_pagine' => $total_pagine,
+        'offset' => $offset
+    );
+}
 
-// Query per recuperare i libri con paginazione
-$sql = "SELECT l.*, e.nome AS nome_edificio
-        FROM libri l
-        LEFT JOIN edifici e ON l.id_edificio = e.id
-        WHERE 1=1 $where_clause
-        ORDER BY l.inventario ASC
-        LIMIT $offset, $per_pagina";
-$result = $conn->query($sql);
+/**
+ * Costruisce la clausola WHERE per la ricerca
+ */
+function buildWhereClause($search_params) {
+    global $conn;
+    
+    $where_clause = "";
+    if(!empty($search_params['search_inventario'])) {
+        $inventario = $conn->real_escape_string($search_params['search_inventario']);
+        $where_clause .= " AND l.inventario LIKE '%$inventario%'";
+    }
+    if(!empty($search_params['search_sezione'])) {
+        $sezione = $conn->real_escape_string($search_params['search_sezione']);
+        $where_clause .= " AND l.sezione LIKE '%$sezione%'";
+    }
+    if(!empty($search_params['search_stanza'])) {
+        $stanza = $conn->real_escape_string($search_params['search_stanza']);
+        $where_clause .= " AND l.stanza LIKE '%$stanza%'";
+    }
+    if(!empty($search_params['search_edificio'])) {
+        $edificio = $conn->real_escape_string($search_params['search_edificio']);
+        $where_clause .= " AND l.id_edificio = '$edificio'";
+    }
+    if(!empty($search_params['search_stato'])) {
+        $stato = $conn->real_escape_string($search_params['search_stato']);
+        $where_clause .= " AND l.stato = '$stato'";
+    }
+    
+    return $where_clause;
+}
+
+/**
+ * Recupera i libri dal database
+ */
+function getBooks($conn, $search_params, $pagination) {
+    // Costruisce la clausola WHERE
+    $where_clause = buildWhereClause($search_params);
+    
+    // Query per recuperare i libri con paginazione
+    $sql = "SELECT l.*, e.nome AS nome_edificio
+            FROM libri l
+            LEFT JOIN edifici e ON l.id_edificio = e.id
+            WHERE 1=1 $where_clause
+            ORDER BY l.inventario ASC
+            LIMIT {$pagination['offset']}, {$pagination['per_pagina']}";
+    
+    return $conn->query($sql);
+}
+
+/**
+ * Recupera tutti gli edifici
+ */
+function getBuildings($conn) {
+    $edifici = array();
+    $edifici_query = "SELECT id, nome FROM edifici ORDER BY nome ASC";
+    $edifici_result = $conn->query($edifici_query);
+    
+    if ($edifici_result->num_rows > 0) {
+        while($edificio = $edifici_result->fetch_assoc()) {
+            $edifici[$edificio['id']] = $edificio['nome'];
+        }
+    }
+    
+    return $edifici;
+}
+
+/**
+ * Genera i controlli di paginazione
+ */
+function generatePaginationControls($pagination, $search_params) {
+    $pagina_corrente = $pagination['pagina_corrente'];
+    $total_pagine = $pagination['total_pagine'];
+    
+    // Non mostrare la paginazione se c'è solo una pagina
+    if($total_pagine <= 1) {
+        return '';
+    }
+    
+    // Costruisci la query string per i link di paginazione
+    $query_params = array();
+    foreach($search_params as $key => $value) {
+        if(!empty($value)) {
+            $query_params[] = $key . '=' . urlencode($value);
+        }
+    }
+    $query_string = implode('&', $query_params);
+    if(!empty($query_string)) {
+        $query_string = '&' . $query_string;
+    }
+    
+    $html = '<nav aria-label="Paginazione risultati">';
+    $html .= '<ul class="pagination justify-content-center">';
+    
+    // Pulsante "Precedente"
+    $disabled = ($pagina_corrente <= 1) ? 'disabled' : '';
+    $html .= '<li class="page-item ' . $disabled . '">';
+    if($pagina_corrente > 1) {
+        $html .= '<a class="page-link" href="?pagina=' . ($pagina_corrente - 1) . $query_string . '" aria-label="Precedente">';
+    } else {
+        $html .= '<span class="page-link" aria-label="Precedente">';
+    }
+    $html .= '<span aria-hidden="true">&laquo;</span>';
+    if($pagina_corrente > 1) {
+        $html .= '</a>';
+    } else {
+        $html .= '</span>';
+    }
+    $html .= '</li>';
+    
+    // Determina il range di pagine da mostrare
+    $range = 2;
+    $start_page = max(1, $pagina_corrente - $range);
+    $end_page = min($total_pagine, $pagina_corrente + $range);
+    
+    // Aggiungi pulsante per la prima pagina se necessario
+    if($start_page > 1) {
+        $html .= '<li class="page-item"><a class="page-link" href="?pagina=1' . $query_string . '">1</a></li>';
+        if($start_page > 2) {
+            $html .= '<li class="page-item disabled"><span class="page-link">...</span></li>';
+        }
+    }
+    
+    // Pagine numerate
+    for($i = $start_page; $i <= $end_page; $i++) {
+        $active = ($pagina_corrente == $i) ? 'active' : '';
+        $html .= '<li class="page-item ' . $active . '">';
+        if($active) {
+            $html .= '<span class="page-link">' . $i . '</span>';
+        } else {
+            $html .= '<a class="page-link" href="?pagina=' . $i . $query_string . '">' . $i . '</a>';
+        }
+        $html .= '</li>';
+    }
+    
+    // Aggiungi pulsante per l'ultima pagina se necessario
+    if($end_page < $total_pagine) {
+        if($end_page < $total_pagine - 1) {
+            $html .= '<li class="page-item disabled"><span class="page-link">...</span></li>';
+        }
+        $html .= '<li class="page-item"><a class="page-link" href="?pagina=' . $total_pagine . $query_string . '">' . $total_pagine . '</a></li>';
+    }
+    
+    // Pulsante "Successivo"
+    $disabled = ($pagina_corrente >= $total_pagine) ? 'disabled' : '';
+    $html .= '<li class="page-item ' . $disabled . '">';
+    if($pagina_corrente < $total_pagine) {
+        $html .= '<a class="page-link" href="?pagina=' . ($pagina_corrente + 1) . $query_string . '" aria-label="Successivo">';
+    } else {
+        $html .= '<span class="page-link" aria-label="Successivo">';
+    }
+    $html .= '<span aria-hidden="true">&raquo;</span>';
+    if($pagina_corrente < $total_pagine) {
+        $html .= '</a>';
+    } else {
+        $html .= '</span>';
+    }
+    $html .= '</li>';
+    
+    $html .= '</ul>';
+    $html .= '</nav>';
+    
+    return $html;
+}
 ?>
 
 <div class="row">
@@ -144,20 +326,38 @@ if(isset($update_status)) {
             </div>
             <div class="card-body">
                 <form action="manage_books.php" method="GET" class="row g-3">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label for="search_inventario" class="form-label">Inventario:</label>
                         <input type="text" class="form-control" id="search_inventario" name="search_inventario" 
-                               value="<?php echo htmlspecialchars($search_inventario); ?>">
+                               value="<?php echo htmlspecialchars($search_params['search_inventario']); ?>">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label for="search_sezione" class="form-label">Sezione:</label>
                         <input type="text" class="form-control" id="search_sezione" name="search_sezione" 
-                               value="<?php echo htmlspecialchars($search_sezione); ?>">
+                               value="<?php echo htmlspecialchars($search_params['search_sezione']); ?>">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label for="search_stanza" class="form-label">Stanza:</label>
                         <input type="text" class="form-control" id="search_stanza" name="search_stanza" 
-                               value="<?php echo htmlspecialchars($search_stanza); ?>">
+                               value="<?php echo htmlspecialchars($search_params['search_stanza']); ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="search_edificio" class="form-label">Edificio:</label>
+                        <select class="form-select" id="search_edificio" name="search_edificio">
+                            <option value="">Tutti gli edifici</option>
+                            <?php foreach($edifici as $id => $nome): ?>
+                                <option value="<?php echo $id; ?>" <?php echo ($search_params['search_edificio'] == $id) ? 'selected' : ''; ?>><?php echo htmlspecialchars($nome); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="search_stato" class="form-label">Stato:</label>
+                        <select class="form-select" id="search_stato" name="search_stato">
+                            <option value="">Tutti gli stati</option>
+                            <option value="disponibile" <?php echo ($search_params['search_stato'] == 'disponibile') ? 'selected' : ''; ?>>Disponibile</option>
+                            <option value="prestito" <?php echo ($search_params['search_stato'] == 'prestito') ? 'selected' : ''; ?>>In Prestito</option>
+                            <option value="manutenzione" <?php echo ($search_params['search_stato'] == 'manutenzione') ? 'selected' : ''; ?>>In Manutenzione</option>
+                        </select>
                     </div>
                     <div class="col-12 d-flex justify-content-end">
                         <button type="submit" class="btn btn-primary me-2">
@@ -178,12 +378,20 @@ if(isset($update_status)) {
         <div class="card shadow-sm">
             <div class="card-header card-header-custom d-flex justify-content-between align-items-center">
                 <h2 class="h5 mb-0"><i class="bi bi-list-check"></i> Elenco Libri</h2>
-                <a href="add_book.php" class="btn btn-sm btn-primary">
-                    <i class="bi bi-plus-circle me-1"></i> Aggiungi Nuovo Libro
-                </a>
+                <div>
+                    <span class="badge bg-primary me-2">
+                        <?php echo $pagination['total_records']; ?> libri trovati
+                    </span>
+                    <a href="add_book.php" class="btn btn-sm btn-primary">
+                        <i class="bi bi-plus-circle me-1"></i> Aggiungi Nuovo Libro
+                    </a>
+                </div>
             </div>
             <div class="card-body">
-                <?php if($result->num_rows > 0): ?>
+                <?php if($books->num_rows > 0): ?>
+                    <!-- Paginazione superiore -->
+                    <?php echo generatePaginationControls($pagination, $search_params); ?>
+                    
                     <div class="table-responsive">
                         <table class="table table-striped table-hover">
                             <thead class="table-primary">
@@ -201,7 +409,7 @@ if(isset($update_status)) {
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php while($row = $result->fetch_assoc()): ?>
+                                <?php while($row = $books->fetch_assoc()): ?>
                                     <?php
                                     // Determina la classe CSS per lo stato
                                     $statoClass = '';
@@ -256,32 +464,8 @@ if(isset($update_status)) {
                         </table>
                     </div>
                     
-                    <!-- Paginazione -->
-                    <?php if($total_pages > 1): ?>
-                    <nav aria-label="Paginazione risultati">
-                        <ul class="pagination justify-content-center">
-                            <li class="page-item <?php echo ($pagina <= 1) ? 'disabled' : ''; ?>">
-                                <a class="page-link" href="<?php echo ($pagina <= 1) ? '#' : '?pagina='.($pagina-1).'&search_inventario='.urlencode($search_inventario).'&search_sezione='.urlencode($search_sezione).'&search_stanza='.urlencode($search_stanza); ?>" aria-label="Precedente">
-                                    <span aria-hidden="true">&laquo;</span>
-                                </a>
-                            </li>
-                            
-                            <?php for($i = 1; $i <= $total_pages; $i++): ?>
-                                <li class="page-item <?php echo ($pagina == $i) ? 'active' : ''; ?>">
-                                    <a class="page-link" href="?pagina=<?php echo $i; ?>&search_inventario=<?php echo urlencode($search_inventario); ?>&search_sezione=<?php echo urlencode($search_sezione); ?>&search_stanza=<?php echo urlencode($search_stanza); ?>">
-                                        <?php echo $i; ?>
-                                    </a>
-                                </li>
-                            <?php endfor; ?>
-                            
-                            <li class="page-item <?php echo ($pagina >= $total_pages) ? 'disabled' : ''; ?>">
-                                <a class="page-link" href="<?php echo ($pagina >= $total_pages) ? '#' : '?pagina='.($pagina+1).'&search_inventario='.urlencode($search_inventario).'&search_sezione='.urlencode($search_sezione).'&search_stanza='.urlencode($search_stanza); ?>" aria-label="Successivo">
-                                    <span aria-hidden="true">&raquo;</span>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
-                    <?php endif; ?>
+                    <!-- Paginazione inferiore -->
+                    <?php echo generatePaginationControls($pagination, $search_params); ?>
                     
                 <?php else: ?>
                     <div class="alert alert-info">

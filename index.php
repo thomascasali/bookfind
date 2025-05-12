@@ -19,13 +19,14 @@ include 'includes/header.php';
                 <h2 class="h5 mb-0"><i class="bi bi-upc-scan"></i> Cerca per Inventario</h2>
             </div>
             <div class="card-body">
-                <form action="index.php" method="GET">
+                <form action="index.php" method="GET" class="search-form">
                     <div class="mb-3">
                         <label for="inventario" class="form-label">Numero Inventario:</label>
                         <div class="input-group">
                             <span class="input-group-text"><i class="bi bi-hash"></i></span>
                             <input type="text" class="form-control" id="inventario" name="inventario" 
-                                   placeholder="Inserisci il numero di inventario">
+                                   placeholder="Inserisci il numero di inventario" 
+                                   value="<?php echo isset($_GET['inventario']) ? htmlspecialchars($_GET['inventario']) : ''; ?>">
                         </div>
                     </div>
                     <div class="d-grid">
@@ -44,13 +45,14 @@ include 'includes/header.php';
                 <h2 class="h5 mb-0"><i class="bi bi-folder"></i> Cerca per Collocazione</h2>
             </div>
             <div class="card-body">
-                <form action="index.php" method="GET">
+                <form action="index.php" method="GET" class="search-form">
                     <div class="mb-3">
                         <label for="sezione" class="form-label">Sezione:</label>
                         <div class="input-group">
                             <span class="input-group-text"><i class="bi bi-bookmark"></i></span>
                             <input type="text" class="form-control" id="sezione" name="sezione" 
-                                   placeholder="Es. N-V.">
+                                   placeholder="Es. N-V." 
+                                   value="<?php echo isset($_GET['sezione']) ? htmlspecialchars($_GET['sezione']) : ''; ?>">
                         </div>
                     </div>
                     <div class="mb-3">
@@ -58,7 +60,8 @@ include 'includes/header.php';
                         <div class="input-group">
                             <span class="input-group-text"><i class="bi bi-collection"></i></span>
                             <input type="text" class="form-control" id="collocazione" name="collocazione" 
-                                   placeholder="Es. A.">
+                                   placeholder="Es. A." 
+                                   value="<?php echo isset($_GET['collocazione']) ? htmlspecialchars($_GET['collocazione']) : ''; ?>">
                         </div>
                     </div>
                     <div class="mb-3">
@@ -66,7 +69,8 @@ include 'includes/header.php';
                         <div class="input-group">
                             <span class="input-group-text"><i class="bi bi-sort-numeric-down"></i></span>
                             <input type="text" class="form-control" id="sequenza" name="sequenza" 
-                                   placeholder="Es. 1.">
+                                   placeholder="Es. 1." 
+                                   value="<?php echo isset($_GET['sequenza']) ? htmlspecialchars($_GET['sequenza']) : ''; ?>">
                         </div>
                     </div>
                     <div class="d-grid">
@@ -75,6 +79,26 @@ include 'includes/header.php';
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cestino/Carrello flottante -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1050;">
+    <div class="card cart-float shadow" id="cart-float" style="display: none;">
+        <div class="card-body d-flex align-items-center p-2">
+            <div class="me-3 position-relative">
+                <i class="bi bi-cart-fill text-primary" style="font-size: 2rem;"></i>
+                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="cart-float-count">
+                    0
+                </span>
+            </div>
+            <div>
+                <h5 class="card-title mb-0 fs-6">Libri nel carrello</h5>
+                <a href="cart.php" class="btn btn-sm btn-primary mt-1">
+                    <i class="bi bi-eye me-1"></i> Visualizza
+                </a>
             </div>
         </div>
     </div>
@@ -128,8 +152,9 @@ if ($results !== null) {
         echo '<div class="row mt-4">';
         echo '<div class="col-12">';
         echo '<div class="card shadow-sm">';
-        echo '<div class="card-header card-header-custom">';
+        echo '<div class="card-header card-header-custom d-flex justify-content-between align-items-center">';
         echo '<h2 class="h5 mb-0"><i class="bi bi-list-check"></i> Risultati della Ricerca</h2>';
+        echo '<span class="badge bg-primary">' . $results->num_rows . ' libro/i trovato/i</span>';
         echo '</div>';
         echo '<div class="card-body">';
         echo '<div class="table-responsive">';
@@ -166,7 +191,7 @@ if ($results !== null) {
                     break;
             }
 
-            echo '<tr>';
+            echo '<tr data-inventario="' . $row["inventario"] . '">';
             echo '<td>' . $row["inventario"] . '</td>';
             // Mostra il nome dell'edificio o "Nessuno" se non associato
             echo '<td>' . ($row["nome_edificio"] ? $row["nome_edificio"] : "Nessuno") . '</td>';
@@ -178,7 +203,14 @@ if ($results !== null) {
             echo '<td>' . $row["scaffale"] . '</td>';
             echo '<td class="' . $statoClass . '">' . ucfirst($row["stato"]) . '</td>';
             echo '<td>';
-            echo '<button class="btn btn-sm btn-success btn-add-to-cart" data-book-id="' . $row["inventario"] . '" title="Aggiungi al carrello">';
+            
+            // Abilita o disabilita il pulsante in base allo stato
+            if ($row["stato"] === 'disponibile') {
+                echo '<button class="btn btn-sm btn-success btn-add-to-cart" data-book-id="' . $row["inventario"] . '" data-bs-toggle="tooltip" title="Aggiungi al carrello">';
+            } else {
+                echo '<button class="btn btn-sm btn-secondary" disabled data-bs-toggle="tooltip" title="Libro non disponibile">';
+            }
+            
             echo '<i class="bi bi-cart-plus"></i>';
             echo '</button>';
             echo '</td>';
@@ -202,7 +234,55 @@ if ($results !== null) {
 
 // Chiudi la connessione al database alla fine dello script
 $conn->close();
+?>
 
+<script>
+// Aggiorna il contatore e il carrello flottante quando si carica la pagina
+document.addEventListener('DOMContentLoaded', function() {
+    // Ottieni il carrello
+    let cart = JSON.parse(localStorage.getItem('bookfind_cart') || '[]');
+    
+    // Aggiorna il contatore nel carrello flottante
+    const cartFloatCount = document.getElementById('cart-float-count');
+    const cartFloat = document.getElementById('cart-float');
+    
+    if (cartFloatCount && cartFloat) {
+        cartFloatCount.textContent = cart.length;
+        
+        // Mostra il carrello flottante solo se ci sono elementi
+        if (cart.length > 0) {
+            cartFloat.style.display = 'block';
+        } else {
+            cartFloat.style.display = 'none';
+        }
+    }
+    
+    // Evidenzia le righe che hanno libri già nel carrello
+    cart.forEach(bookId => {
+        const row = document.querySelector(`tr[data-inventario="${bookId}"]`);
+        if (row) {
+            row.classList.add('table-info');
+            
+            // Aggiorna il pulsante
+            const button = row.querySelector('.btn-add-to-cart');
+            if (button) {
+                button.classList.remove('btn-success');
+                button.classList.add('btn-secondary');
+                button.setAttribute('disabled', 'disabled');
+                button.setAttribute('title', 'Già nel carrello');
+                // Aggiorna l'icona
+                button.innerHTML = '<i class="bi bi-check-circle"></i>';
+            }
+        }
+    });
+    
+    // Abilita i tooltip
+    const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+    [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+});
+</script>
+
+<?php
 // Includi il footer
 include 'includes/footer.php';
 ?>

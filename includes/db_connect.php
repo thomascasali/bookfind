@@ -16,6 +16,29 @@ if ($conn->connect_error) {
 // Imposta il set di caratteri a utf8 (opzionale ma consigliato)
 $conn->set_charset("utf8");
 
-// Ora la variabile $conn contiene l'oggetto connessione al database.
-// Questo file non produce output, serve solo per stabilire la connessione.
-?>
+// Definisci la funzione per ottenere l'URL base se non è ancora definita
+if (!function_exists('getBaseUrl')) {
+    function getBaseUrl() {
+        $base_dir = dirname($_SERVER['SCRIPT_NAME']);
+        $base_url = '';
+        if($base_dir != '/' && $base_dir != '\\') {
+            $base_url = $base_dir;
+            if(substr($base_url, -1) != '/') $base_url .= '/';
+        }
+        return $base_url;
+    }
+}
+
+// Funzione per registrare errori (debug)
+function logError($message) {
+    $log_file = __DIR__ . '/../logs/error.log';
+    $directory = dirname($log_file);
+    
+    // Crea la directory dei log se non esiste
+    if (!is_dir($directory)) {
+        mkdir($directory, 0777, true);
+    }
+    
+    // Registra l'errore nel file di log
+    error_log('[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL, 3, $log_file);
+}

@@ -18,7 +18,7 @@ if (!isset($data['bookIds']) || !is_array($data['bookIds']) || empty($data['book
     exit;
 }
 
-// Prepara gli ID dei libri per la query
+// Pulisci gli ID dei libri per la query
 $book_ids = array();
 foreach ($data['bookIds'] as $id) {
     // Pulisci gli ID per evitare SQL injection
@@ -29,7 +29,7 @@ foreach ($data['bookIds'] as $id) {
 $book_ids_str = "'" . implode("','", $book_ids) . "'";
 
 // Query per recuperare i dettagli dei libri
-$sql = "SELECT l.*, e.nome AS nome_edificio
+$sql = "SELECT l.*, e.nome AS nome_edificio, e.indirizzo, e.citta, e.cap
         FROM libri l
         LEFT JOIN edifici e ON l.id_edificio = e.id
         WHERE l.inventario IN ($book_ids_str)
@@ -40,13 +40,18 @@ $result = $conn->query($sql);
 // Prepara l'array per la risposta
 $books = array();
 
-if ($result->num_rows > 0) {
+if ($result && $result->num_rows > 0) {
     while($row = $result->fetch_assoc()) {
         $books[] = $row;
     }
     echo json_encode(['success' => true, 'books' => $books]);
 } else {
-    echo json_encode(['success' => false, 'message' => 'Nessun libro trovato']);
+    // Controlla se c'è stato un errore nella query
+    if(!$result) {
+        echo json_encode(['success' => false, 'message' => 'Errore nella query: ' . $conn->error]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Nessun libro trovato']);
+    }
 }
 
 // Chiudi la connessione al database

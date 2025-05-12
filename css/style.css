@@ -92,6 +92,31 @@ body {
     -webkit-overflow-scrolling: touch;
 }
 
+/* Stile per il carrello flottante */
+.cart-float {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.cart-float:hover {
+    transform: scale(1.05);
+}
+
+/* Stile per gli elementi nel carrello */
+.cart-item {
+    border-left: 3px solid #007bff;
+    transition: all 0.2s ease;
+}
+
+.cart-item:hover {
+    background-color: #f8f9fa;
+}
+
+/* Stile per le righe di tabella che contengono libri già nel carrello */
+tr.in-cart {
+    background-color: rgba(0, 123, 255, 0.1) !important;
+}
+
 /* Media query per dispositivi mobili */
 @media (max-width: 768px) {
     .hide-mobile {
@@ -101,5 +126,11 @@ body {
     .container {
         padding-left: 10px;
         padding-right: 10px;
+    }
+    
+    .cart-float {
+        width: 95%;
+        left: 2.5%;
+        right: 2.5%;
     }
 }

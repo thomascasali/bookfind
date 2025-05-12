@@ -9,14 +9,16 @@ include 'includes/header.php';
 <div class="row">
     <div class="col-lg-12">
         <h1 class="mb-4"><i class="bi bi-cart"></i> Carrello Libri</h1>
+        <p class="lead">Qui puoi gestire i libri che hai selezionato per il prelievo.</p>
     </div>
 </div>
 
 <div class="row">
     <div class="col-lg-8 col-md-12 mb-4">
         <div class="card shadow-sm">
-            <div class="card-header card-header-custom">
+            <div class="card-header card-header-custom d-flex justify-content-between align-items-center">
                 <h2 class="h5 mb-0"><i class="bi bi-list-check"></i> Libri Selezionati</h2>
+                <span class="badge bg-primary" id="total-books">0 libri</span>
             </div>
             <div class="card-body">
                 <div id="cart-list">
@@ -49,11 +51,44 @@ include 'includes/header.php';
                         <button id="clear-cart" class="btn btn-danger">
                             <i class="bi bi-trash me-1"></i> Svuota Carrello
                         </button>
+                        <a href="index.php" class="btn btn-outline-secondary mt-3">
+                            <i class="bi bi-plus-circle me-1"></i> Aggiungi Altri Libri
+                        </a>
                     </div>
                     
                     <div class="alert alert-info mt-4">
                         <i class="bi bi-info-circle me-2"></i>
                         <strong>Suggerimento:</strong> Usa "Ordina per Posizione" per ottimizzare il percorso di raccolta dei libri.
+                    </div>
+                    
+                    <div class="card mt-4">
+                        <div class="card-header bg-light">
+                            <h3 class="h6 mb-0">Legenda Stati</h3>
+                        </div>
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Disponibile
+                                <span class="badge bg-success">Prelevabile</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                In Prestito
+                                <span class="badge bg-danger">Non Disponibile</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                In Manutenzione
+                                <span class="badge bg-warning text-dark">Temporaneamente Non Disponibile</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div id="empty-cart-actions">
+                    <div class="text-center py-4">
+                        <i class="bi bi-cart-x text-muted" style="font-size: 4rem;"></i>
+                        <p class="mt-3">Il carrello è vuoto.</p>
+                        <a href="index.php" class="btn btn-primary mt-2">
+                            <i class="bi bi-search me-1"></i> Inizia a cercare libri
+                        </a>
                     </div>
                 </div>
             </div>
@@ -98,8 +133,28 @@ include 'includes/footer.php';
 <!-- Script specifico per la pagina del carrello -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Aggiorna contatore totale libri
+    function updateTotalCounter() {
+        const cart = JSON.parse(localStorage.getItem('bookfind_cart') || '[]');
+        const totalBadge = document.getElementById('total-books');
+        if (totalBadge) {
+            totalBadge.textContent = cart.length + ' ' + (cart.length === 1 ? 'libro' : 'libri');
+        }
+        
+        // Mostra/nascondi azioni per carrello vuoto
+        const emptyCartActions = document.getElementById('empty-cart-actions');
+        if (emptyCartActions) {
+            if (cart.length === 0) {
+                emptyCartActions.style.display = 'block';
+            } else {
+                emptyCartActions.style.display = 'none';
+            }
+        }
+    }
+    
     // Carica il contenuto del carrello
     updateCartUI();
+    updateTotalCounter();
     
     // Gestione del pulsante di stampa
     document.getElementById('print-cart').addEventListener('click', function() {
@@ -109,139 +164,23 @@ document.addEventListener('DOMContentLoaded', function() {
     // Gestione del pulsante di ordinamento
     document.getElementById('sort-by-location').addEventListener('click', function() {
         sortCartByLocation();
+        updateTotalCounter();
     });
     
     // Gestione del pulsante di svuotamento
     document.getElementById('clear-cart').addEventListener('click', function() {
-        if (confirm('Sei sicuro di voler svuotare il carrello?')) {
-            clearCart();
+        clearCart();
+        updateTotalCounter();
+    });
+    
+    // Aggiungi event delegation per i pulsanti di rimozione che verranno aggiunti dinamicamente
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-from-cart') || e.target.closest('.remove-from-cart')) {
+            const button = e.target.classList.contains('remove-from-cart') ? e.target : e.target.closest('.remove-from-cart');
+            const bookId = button.getAttribute('data-book-id');
+            removeFromCart(bookId);
+            updateTotalCounter();
         }
     });
 });
-
-/**
- * Stampa il contenuto del carrello
- */
-function printCart() {
-    const now = new Date();
-    document.getElementById('print-date').textContent = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
-    
-    // Ottieni i dati dei libri dal carrello
-    const cartTableBody = document.getElementById('print-table-body');
-    cartTableBody.innerHTML = '';
-    
-    // Ottieni il carrello
-    let cart = JSON.parse(localStorage.getItem('bookfind_cart') || '[]');
-    
-    // Recupera i dettagli dei libri tramite AJAX
-    fetch('cart_items.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ bookIds: cart }),
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.books && data.books.length > 0) {
-            // Popola la tabella di stampa
-            data.books.forEach(book => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td style="border: 1px solid #ddd; padding: 8px;">${book.inventario}</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">${book.sezione} ${book.collocazione} ${book.sequenza}</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">${book.nome_edificio || 'Nessuno'}</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">${book.stanza}</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">${book.scaffale}</td>
-                `;
-                cartTableBody.appendChild(row);
-            });
-            
-            // Crea una finestra di stampa
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write('<html><head><title>Stampa Carrello Libri</title></head><body>');
-            printWindow.document.write(document.getElementById('print-content').innerHTML);
-            printWindow.document.write('</body></html>');
-            printWindow.document.close();
-            
-            // Attendi il caricamento del contenuto
-            printWindow.onload = function() {
-                printWindow.print();
-                printWindow.close();
-            };
-        } else {
-            showToast('Errore nel caricamento dei libri per la stampa', 'error');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showToast('Errore nella stampa', 'error');
-    });
-}
-
-/**
- * Ordina il carrello per posizione (edificio, stanza, scaffale)
- */
-function sortCartByLocation() {
-    // Ottieni il carrello
-    let cart = JSON.parse(localStorage.getItem('bookfind_cart') || '[]');
-    
-    if (cart.length === 0) {
-        showToast('Il carrello è vuoto', 'warning');
-        return;
-    }
-    
-    // Recupera i dettagli dei libri tramite AJAX
-    fetch('cart_items.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ bookIds: cart }),
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.books && data.books.length > 0) {
-            // Ordina i libri per edificio, stanza, scaffale
-            data.books.sort((a, b) => {
-                // Prima per edificio
-                if (a.id_edificio !== b.id_edificio) {
-                    return (a.id_edificio || '').localeCompare(b.id_edificio || '');
-                }
-                
-                // Poi per stanza
-                if (a.stanza !== b.stanza) {
-                    return a.stanza.localeCompare(b.stanza);
-                }
-                
-                // Infine per scaffale
-                return a.scaffale.localeCompare(b.scaffale);
-            });
-            
-            // Aggiorna il carrello con l'ordine nuovo
-            cart = data.books.map(book => book.inventario);
-            localStorage.setItem('bookfind_cart', JSON.stringify(cart));
-            
-            // Aggiorna l'interfaccia utente
-            updateCartUI();
-            
-            showToast('Carrello ordinato per posizione', 'success');
-        } else {
-            showToast('Errore nell\'ordinamento dei libri', 'error');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showToast('Errore nell\'ordinamento', 'error');
-    });
-}
-
-/**
- * Svuota il carrello
- */
-function clearCart() {
-    localStorage.removeItem('bookfind_cart');
-    updateCartUI();
-    showToast('Carrello svuotato', 'info');
-}
 </script>
