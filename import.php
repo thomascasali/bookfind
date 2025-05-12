@@ -6,11 +6,11 @@ session_start();
 $page_title = "Importa Libri";
 
 // Aumentiamo i limiti di PHP per gestire file grandi
-ini_set('max_execution_time', 300); // 5 minuti
-ini_set('memory_limit', '256M');    // 256 MB di memoria
+ini_set('max_execution_time', 600); // 10 minuti
+ini_set('memory_limit', '512M');    // 512 MB di memoria
 
 // Definisci dimensione del batch
-$batch_size = 100; // Numero di record da importare in un singolo batch
+$batch_size = 1000; // Numero di record da importare in un singolo batch
 
 // Inizializza le variabili di sessione per l'importazione batch se non esistono
 if(!isset($_SESSION['import_in_progress'])) {
@@ -20,8 +20,11 @@ if(!isset($_SESSION['import_in_progress'])) {
     $_SESSION['import_total'] = 0;
     $_SESSION['import_processed'] = 0;
     $_SESSION['import_success'] = 0;
+    $_SESSION['import_duplicates'] = 0;
     $_SESSION['import_errors'] = [];
     $_SESSION['import_id_edificio'] = '';
+    $_SESSION['auto_continue'] = false;
+    $_SESSION['last_batch_time'] = 0;
 }
 
 // Gestisci l'annullamento dell'importazione
@@ -38,192 +41,85 @@ if(isset($_POST['cancel_import'])) {
     $_SESSION['import_total'] = 0;
     $_SESSION['import_processed'] = 0;
     $_SESSION['import_success'] = 0;
+    $_SESSION['import_duplicates'] = 0;
     $_SESSION['import_errors'] = [];
     $_SESSION['import_id_edificio'] = '';
+    $_SESSION['auto_continue'] = false;
+    $_SESSION['last_batch_time'] = 0;
     
     // Impostiamo un flag invece di fare redirect
     $redirect_to_import = true;
 }
 
-// Gestione dell'importazione
+// Gestione iniziale dell'importazione (solo caricamento del file)
 $import_message = '';
 $import_status = '';
 
-if(isset($_POST['submit_import']) || isset($_POST['continue_import'])) {
+if(isset($_POST['submit_import'])) {
     // Includi il file di connessione al database
-    if (!isset($conn) || $conn->connect_error) {
-        require_once 'includes/db_connect.php';
-    }
+    require_once 'includes/db_connect.php';
     
-    // Fase iniziale dell'importazione
-    if(isset($_POST['submit_import'])) {
-        // Controlla se il file è stato caricato correttamente
-        if(!isset($_FILES["csv_file"]) || $_FILES["csv_file"]["error"] != 0) {
-            $import_message = "Errore nel caricamento del file. Codice errore: " . ($_FILES["csv_file"]["error"] ?? 'Sconosciuto');
-            $import_status = "danger";
-        }
-        // Controlla se è stato selezionato un edificio
-        elseif(!isset($_POST['id_edificio']) || empty($_POST['id_edificio'])) {
-            $import_message = "Seleziona un edificio di destinazione.";
-            $import_status = "danger";
-        }
-        else {
-            // Directory temporanea per salvare il file caricato
-            $target_dir = "uploads/"; 
-            // Crea la directory di upload se non esiste
-            if (!is_dir($target_dir)) {
-                mkdir($target_dir, 0777, true);
-            }
-            
-            // Genera un nome file univoco
-            $temp_file = $target_dir . uniqid('import_') . '.csv';
-            
-            // Controllo del tipo di file
-            $fileType = strtolower(pathinfo($_FILES["csv_file"]["name"], PATHINFO_EXTENSION));
-            if($fileType != "csv") {
-                $import_message = "Errore: è consentito solo l'upload di file CSV.";
-                $import_status = "danger";
-            }
-            // Sposta il file caricato nella directory temporanea
-            elseif(move_uploaded_file($_FILES["csv_file"]["tmp_name"], $temp_file)) {
-                // Conta il numero totale di righe nel file CSV
-                $total_rows = 0;
-                $file = fopen($temp_file, 'r');
-                while(fgetcsv($file)) {
-                    $total_rows++;
-                }
-                fclose($file);
-                
-                // Sottrai 1 per la riga di intestazione
-                $total_rows = max(0, $total_rows - 1);
-                
-                // Inizializza le variabili di sessione per l'importazione batch
-                $_SESSION['import_in_progress'] = true;
-                $_SESSION['import_file'] = $temp_file;
-                $_SESSION['import_offset'] = 0; // Inizia dalla prima riga dopo l'intestazione
-                $_SESSION['import_total'] = $total_rows;
-                $_SESSION['import_processed'] = 0;
-                $_SESSION['import_success'] = 0;
-                $_SESSION['import_errors'] = [];
-                $_SESSION['import_id_edificio'] = $_POST['id_edificio'];
-                
-                // Impostiamo un flag invece di fare redirect
-                $continue_import = true;
-            } else {
-                $import_message = "Errore nel caricamento del file.";
-                $import_status = "danger";
-            }
-        }
+    // Controlla se il file è stato caricato correttamente
+    if(!isset($_FILES["csv_file"]) || $_FILES["csv_file"]["error"] != 0) {
+        $import_message = "Errore nel caricamento del file. Codice errore: " . ($_FILES["csv_file"]["error"] ?? 'Sconosciuto');
+        $import_status = "danger";
     }
-    
-    // Fase di elaborazione batch
-    if($_SESSION['import_in_progress'] && (isset($_POST['continue_import']) || isset($continue_import))) {
-        $import_file = $_SESSION['import_file'];
-        $offset = $_SESSION['import_offset'];
-        $id_edificio = $_SESSION['import_id_edificio'];
+    // Controlla se è stato selezionato un edificio
+    elseif(!isset($_POST['id_edificio']) || empty($_POST['id_edificio'])) {
+        $import_message = "Seleziona un edificio di destinazione.";
+        $import_status = "danger";
+    }
+    else {
+        // Directory temporanea per salvare il file caricato
+        $target_dir = "uploads/"; 
+        // Crea la directory di upload se non esiste
+        if (!is_dir($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
         
-        // Assicurati che il file esista
-        if(!file_exists($import_file)) {
-            $import_message = "File di importazione non trovato.";
+        // Genera un nome file univoco
+        $temp_file = $target_dir . uniqid('import_') . '.csv';
+        
+        // Controllo del tipo di file
+        $fileType = strtolower(pathinfo($_FILES["csv_file"]["name"], PATHINFO_EXTENSION));
+        if($fileType != "csv") {
+            $import_message = "Errore: è consentito solo l'upload di file CSV.";
             $import_status = "danger";
-            $_SESSION['import_in_progress'] = false;
         }
-        else {
-            // Apri il file CSV
-            $file = fopen($import_file, 'r');
-            
-            // Salta l'intestazione se è la prima elaborazione
-            if($offset == 0) {
-                fgetcsv($file);
-            } else {
-                // Salta le righe già elaborate
-                for($i = 0; $i <= $offset; $i++) {
-                    fgetcsv($file);
-                }
+        // Sposta il file caricato nella directory temporanea
+        elseif(move_uploaded_file($_FILES["csv_file"]["tmp_name"], $temp_file)) {
+            // Conta il numero totale di righe nel file CSV
+            $total_rows = 0;
+            $file = fopen($temp_file, 'r');
+            while(fgetcsv($file)) {
+                $total_rows++;
             }
-            
-            // Inizializza contatori per questo batch
-            $batch_processed = 0;
-            $batch_success = 0;
-            
-            // Elabora un batch di righe
-            while(($data = fgetcsv($file)) !== FALSE && $batch_processed < $batch_size) {
-                // Incrementa contatori
-                $batch_processed++;
-                $_SESSION['import_processed']++;
-                
-                // Verifica che la riga abbia il numero atteso di colonne
-                if(count($data) >= 7) { 
-                    $inventario = isset($data[4]) ? trim($data[4]) : '';
-                    
-                    // Verifica che l'inventario non sia vuoto
-                    if(empty($inventario)) {
-                        $_SESSION['import_errors'][] = "Errore alla riga " . ($_SESSION['import_offset'] + $batch_processed) . ": Numero di inventario vuoto. Riga saltata.";
-                        continue;
-                    }
-                    
-                    // Verifica che l'inventario non esista già nel database
-                    $check_query = "SELECT inventario FROM libri WHERE inventario = ?";
-                    $stmt = $conn->prepare($check_query);
-                    $stmt->bind_param("s", $inventario);
-                    $stmt->execute();
-                    $check_result = $stmt->get_result();
-                    
-                    if($check_result->num_rows > 0) {
-                        $_SESSION['import_errors'][] = "Errore alla riga " . ($_SESSION['import_offset'] + $batch_processed) . ": Inventario '$inventario' già esistente nel database. Riga saltata.";
-                        continue;
-                    }
-                    
-                    // Ora procedi con l'importazione
-                    $sezione = isset($data[0]) ? trim($data[0]) : '';
-                    $collocazione = isset($data[1]) ? trim($data[1]) : '';
-                    $specificazione = isset($data[2]) ? trim($data[2]) : '';
-                    $sequenza = isset($data[3]) ? trim($data[3]) : '';
-                    $stanza = isset($data[5]) ? trim($data[5]) : '';
-                    $scaffale = isset($data[6]) ? trim($data[6]) : '';
-                    
-                    // Query per inserire i dati nel database usando prepared statement
-                    $sql_insert = "INSERT INTO libri (inventario, id_edificio, sezione, collocazione, sequenza, specificazione, stanza, scaffale, stato) 
-                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'disponibile')";
-                    
-                    try {
-                        $stmt = $conn->prepare($sql_insert);
-                        $stmt->bind_param("sissssss", $inventario, $id_edificio, $sezione, $collocazione, $sequenza, $specificazione, $stanza, $scaffale);
-                        
-                        if($stmt->execute()) {
-                            $batch_success++;
-                            $_SESSION['import_success']++;
-                        } else {
-                            $_SESSION['import_errors'][] = "Errore alla riga " . ($_SESSION['import_offset'] + $batch_processed) . " (Inventario: $inventario): " . $stmt->error;
-                        }
-                    } catch (Exception $e) {
-                        $_SESSION['import_errors'][] = "Errore alla riga " . ($_SESSION['import_offset'] + $batch_processed) . " (Inventario: $inventario): " . $e->getMessage();
-                    }
-                } else {
-                    $_SESSION['import_errors'][] = "Errore alla riga " . ($_SESSION['import_offset'] + $batch_processed) . ": Numero di colonne insufficiente. Riga saltata.";
-                }
-            }
-            
-            // Chiudi il file
             fclose($file);
             
-            // Aggiorna l'offset per il prossimo batch
-            $_SESSION['import_offset'] += $batch_processed;
+            // Sottrai 1 per la riga di intestazione
+            $total_rows = max(0, $total_rows - 1);
             
-            // Verifica se l'importazione è completa
-            if($_SESSION['import_processed'] >= $_SESSION['import_total']) {
-                // L'importazione è completata
-                $import_message = "Importazione completata. Importati " . $_SESSION['import_success'] . " libri su " . $_SESSION['import_total'] . " righe processate.";
-                if(count($_SESSION['import_errors']) > 0) {
-                    $import_message .= " " . count($_SESSION['import_errors']) . " righe sono state saltate a causa di errori.";
-                }
-                $import_status = "success";
-                
-                // Elimina il file temporaneo
-                @unlink($import_file);
-                
-                // NON reimpostiamo ancora le variabili di sessione per mostrare il risultato finale
+            // Inizializza le variabili di sessione per l'importazione batch
+            $_SESSION['import_in_progress'] = true;
+            $_SESSION['import_file'] = $temp_file;
+            $_SESSION['import_offset'] = 0; // Inizia dalla prima riga dopo l'intestazione
+            $_SESSION['import_total'] = $total_rows;
+            $_SESSION['import_processed'] = 0;
+            $_SESSION['import_success'] = 0;
+            $_SESSION['import_duplicates'] = 0;
+            $_SESSION['import_errors'] = [];
+            $_SESSION['import_id_edificio'] = $_POST['id_edificio'];
+            
+            // Se la checkbox di auto-continuazione è selezionata
+            if(isset($_POST['auto_continue']) && $_POST['auto_continue'] == '1') {
+                $_SESSION['auto_continue'] = true;
             }
+            
+            $import_message = "File caricato con successo. L'importazione inizierà a breve.";
+            $import_status = "success";
+        } else {
+            $import_message = "Errore nel caricamento del file.";
+            $import_status = "danger";
         }
     }
     
@@ -231,7 +127,7 @@ if(isset($_POST['submit_import']) || isset($_POST['continue_import'])) {
     $conn->close();
 }
 
-// Ora includi l'header dopo aver gestito le operazioni
+// Includi l'header dopo aver gestito le operazioni
 include 'includes/header.php';
 ?>
 
@@ -259,17 +155,19 @@ include 'includes/header.php';
 <?php if($_SESSION['import_in_progress']): ?>
 <!-- Visualizzazione dello stato di importazione batch -->
 <div class="row">
-    <div class="col-lg-8 col-md-10 mx-auto">
+    <div class="col-lg-10 col-md-12 mx-auto">
         <div class="card shadow-sm mb-4">
-            <div class="card-header card-header-custom">
+            <div class="card-header card-header-custom d-flex justify-content-between align-items-center">
                 <h2 class="h5 mb-0"><i class="bi bi-arrow-repeat"></i> Importazione in corso</h2>
+                <div id="import-status-badge" class="badge bg-primary">In attesa</div>
             </div>
             <div class="card-body">
                 <div class="progress mb-3">
                     <?php 
                     $progress = ($_SESSION['import_processed'] / $_SESSION['import_total']) * 100;
                     ?>
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                    <div class="progress-bar progress-bar-striped" 
+                         id="progress-bar"
                          role="progressbar" 
                          style="width: <?php echo $progress; ?>%" 
                          aria-valuenow="<?php echo $progress; ?>" 
@@ -282,19 +180,34 @@ include 'includes/header.php';
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle me-2"></i>
                     <strong>Stato importazione:</strong><br>
-                    Elaborati <?php echo $_SESSION['import_processed']; ?> di <?php echo $_SESSION['import_total']; ?> record.<br>
-                    <?php echo $_SESSION['import_success']; ?> libri importati con successo.<br>
-                    <?php echo count($_SESSION['import_errors']); ?> errori riscontrati.
+                    Elaborati <span id="processed-count"><?php echo $_SESSION['import_processed']; ?></span> di <span id="total-count"><?php echo $_SESSION['import_total']; ?></span> record.<br>
+                    <span id="success-count"><?php echo $_SESSION['import_success']; ?></span> libri importati con successo.<br>
+                    <span id="duplicates-count"><?php echo $_SESSION['import_duplicates']; ?></span> record saltati (già esistenti).<br>
+                    <span id="errors-count"><?php echo count($_SESSION['import_errors']); ?></span> errori riscontrati.<br>
+                    Tempo ultimo batch: <span id="last-batch-time"><?php echo $_SESSION['last_batch_time']; ?></span> secondi.
                 </div>
                 
-                <form action="import.php" method="POST" class="text-center">
-                    <button type="submit" name="continue_import" class="btn btn-primary">
-                        <i class="bi bi-arrow-repeat me-1"></i> Continua Importazione
-                    </button>
-                    <button type="submit" name="cancel_import" class="btn btn-danger">
-                        <i class="bi bi-x-circle me-1"></i> Annulla Importazione
-                    </button>
-                </form>
+                <div class="d-flex justify-content-between mb-3">
+                    <div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="auto_continue_switch" 
+                                   <?php echo $_SESSION['auto_continue'] ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="auto_continue_switch">Continua automaticamente</label>
+                        </div>
+                    </div>
+                    <div>
+                        <button id="start-import-btn" class="btn btn-primary">
+                            <i class="bi bi-play-fill me-1"></i> Avvia/Continua Importazione
+                        </button>
+                        <button id="cancel-import-btn" class="btn btn-danger">
+                            <i class="bi bi-x-circle me-1"></i> Annulla Importazione
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="import-log" class="border rounded p-3 bg-light" style="max-height: 200px; overflow-y: auto;">
+                    <div class="text-muted">Log dell'importazione apparirà qui...</div>
+                </div>
             </div>
         </div>
         
@@ -309,8 +222,8 @@ include 'includes/header.php';
                     <strong>Sono stati riscontrati degli errori durante l'importazione:</strong>
                 </div>
                 
-                <div class="error-log" style="max-height: 300px; overflow-y: auto;">
-                    <ul class="list-group">
+                <div id="error-log" class="error-log" style="max-height: 300px; overflow-y: auto;">
+                    <ul class="list-group" id="error-list">
                         <?php 
                         // Limita il numero di errori visualizzati per non appesantire la pagina
                         $errors_to_show = array_slice($_SESSION['import_errors'], 0, 50);
@@ -333,6 +246,213 @@ include 'includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<!-- Script per gestire l'importazione con AJAX -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const startImportBtn = document.getElementById('start-import-btn');
+    const cancelImportBtn = document.getElementById('cancel-import-btn');
+    const autoContinueSwitch = document.getElementById('auto_continue_switch');
+    const importLog = document.getElementById('import-log');
+    const progressBar = document.getElementById('progress-bar');
+    const importStatusBadge = document.getElementById('import-status-badge');
+    
+    let isImporting = false;
+    
+    // Funzione per aggiungere messaggi al log
+    function addToLog(message, type = 'info') {
+        const time = new Date().toLocaleTimeString();
+        const logClass = type === 'error' ? 'text-danger' : 
+                         type === 'success' ? 'text-success' : 'text-info';
+        
+        const logEntry = document.createElement('div');
+        logEntry.className = logClass;
+        logEntry.innerHTML = `<small>[${time}] ${message}</small>`;
+        
+        importLog.appendChild(logEntry);
+        importLog.scrollTop = importLog.scrollHeight; // Auto-scroll
+    }
+    
+    // Funzione per aggiornare l'interfaccia
+    function updateUI(data) {
+        // Aggiorna la barra di progresso
+        const progress = Math.round((data.processed / data.total) * 100);
+        progressBar.style.width = progress + '%';
+        progressBar.setAttribute('aria-valuenow', progress);
+        progressBar.textContent = progress + '%';
+        
+        // Aggiorna i contatori
+        document.getElementById('processed-count').textContent = data.processed;
+        document.getElementById('success-count').textContent = data.success;
+        document.getElementById('duplicates-count').textContent = data.duplicates;
+        document.getElementById('errors-count').textContent = data.errors.length;
+        document.getElementById('last-batch-time').textContent = data.last_batch_time;
+        
+        // Aggiorna il badge di stato
+        if (data.completed) {
+            importStatusBadge.className = 'badge bg-success';
+            importStatusBadge.textContent = 'Completato';
+            progressBar.classList.remove('progress-bar-animated');
+            isImporting = false;
+            startImportBtn.disabled = true;
+        } else if (isImporting) {
+            importStatusBadge.className = 'badge bg-primary';
+            importStatusBadge.textContent = 'In corso';
+            progressBar.classList.add('progress-bar-animated');
+        } else {
+            importStatusBadge.className = 'badge bg-warning';
+            importStatusBadge.textContent = 'In pausa';
+            progressBar.classList.remove('progress-bar-animated');
+        }
+        
+        // Aggiorna la lista degli errori
+        if (data.errors && data.errors.length > 0) {
+            const errorList = document.getElementById('error-list');
+            if (errorList) {
+                errorList.innerHTML = '';
+                
+                // Mostra solo i primi 50 errori
+                const errorsToShow = data.errors.slice(0, 50);
+                errorsToShow.forEach(error => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item list-group-item-warning';
+                    li.textContent = error;
+                    errorList.appendChild(li);
+                });
+                
+                // Mostra il conteggio degli errori rimanenti
+                if (data.errors.length > 50) {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item list-group-item-warning';
+                    li.textContent = `... e altri ${data.errors.length - 50} errori (non visualizzati).`;
+                    errorList.appendChild(li);
+                }
+            }
+        }
+    }
+    
+    // Funzione per elaborare un batch
+    function processBatch() {
+        if (!isImporting) return;
+        
+        importStatusBadge.className = 'badge bg-primary';
+        importStatusBadge.textContent = 'In corso';
+        progressBar.classList.add('progress-bar-animated');
+        
+        addToLog('Elaborazione batch in corso...');
+        
+        // Disabilita i pulsanti durante l'elaborazione
+        startImportBtn.disabled = true;
+        
+        fetch('import_ajax.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'action=process_batch'
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Aggiorna l'interfaccia utente
+            updateUI(data);
+            
+            // Aggiungi messaggi al log
+            if (data.batch_processed > 0) {
+                addToLog(`Elaborati ${data.batch_processed} record in ${data.last_batch_time} secondi.`, 'success');
+            }
+            
+            if (data.completed) {
+                addToLog('Importazione completata!', 'success');
+                isImporting = false;
+                startImportBtn.disabled = true;
+            } else {
+                startImportBtn.disabled = false;
+                
+                // Se l'auto-continua è attivo, avvia il prossimo batch
+                if (autoContinueSwitch.checked && isImporting) {
+                    addToLog('Auto-continuazione attiva, prossimo batch tra 2 secondi...');
+                    setTimeout(processBatch, 2000);
+                } else {
+                    importStatusBadge.className = 'badge bg-warning';
+                    importStatusBadge.textContent = 'In pausa';
+                    progressBar.classList.remove('progress-bar-animated');
+                    isImporting = false;
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            addToLog('Errore durante l\'elaborazione: ' + error.message, 'error');
+            
+            importStatusBadge.className = 'badge bg-danger';
+            importStatusBadge.textContent = 'Errore';
+            progressBar.classList.remove('progress-bar-animated');
+            
+            startImportBtn.disabled = false;
+            isImporting = false;
+        });
+    }
+    
+    // Evento per il pulsante Avvia/Continua
+    startImportBtn.addEventListener('click', function() {
+        isImporting = true;
+        processBatch();
+    });
+    
+    // Evento per il toggle di auto-continua
+    autoContinueSwitch.addEventListener('change', function() {
+        fetch('import_ajax.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'action=toggle_auto_continue&value=' + (this.checked ? '1' : '0')
+        })
+        .then(response => response.json())
+        .then(data => {
+            addToLog(`Auto-continuazione ${data.auto_continue ? 'attivata' : 'disattivata'}.`);
+            
+            // Se l'auto-continua è attivato e non stiamo già importando, avvia l'importazione
+            if (data.auto_continue && !isImporting && !data.completed) {
+                isImporting = true;
+                processBatch();
+            }
+        });
+    });
+    
+    // Evento per il pulsante Annulla
+    cancelImportBtn.addEventListener('click', function() {
+        if (confirm('Sei sicuro di voler annullare l\'importazione? I record già importati rimarranno nel database.')) {
+            // Invia la richiesta di annullamento al server
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'import.php';
+            
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'cancel_import';
+            input.value = '1';
+            
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+    });
+    
+    // Aggiungi un messaggio iniziale al log
+    addToLog('Importazione inizializzata. Premi "Avvia/Continua Importazione" per iniziare.');
+    
+    // Se l'auto-continua è attivo, avvia l'importazione automaticamente
+    if (autoContinueSwitch.checked && <?php echo $_SESSION['import_processed'] < $_SESSION['import_total'] ? 'true' : 'false'; ?>) {
+        addToLog('Auto-continuazione attivata, avvio importazione...');
+        setTimeout(function() {
+            isImporting = true;
+            processBatch();
+        }, 1000);
+    }
+});
+</script>
+
 <?php else: ?>
 <!-- Form di caricamento file CSV -->
 <div class="row">
@@ -378,6 +498,12 @@ include 'includes/header.php';
                             $conn->close();
                             ?>
                         </select>
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="auto_continue" name="auto_continue" value="1" checked>
+                        <label class="form-check-label" for="auto_continue">Continua automaticamente tra i batch</label>
+                        <div class="form-text">Seleziona questa opzione per continuare automaticamente l'importazione senza dover cliccare dopo ogni batch.</div>
                     </div>
 
                     <div class="d-grid gap-2">
